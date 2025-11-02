@@ -191,6 +191,9 @@ export default function KasirApp() {
   const [employees, setEmployees] = useState([]);
   const [employeeWorkHistory, setEmployeeWorkHistory] = useState([]);
   
+  // State for editing employee
+  const [editingEmployee, setEditingEmployee] = useState(null);
+  
   // State for Expenses with expanded categories
   const [expenses, setExpenses] = useState([]);
   const [expenseCategories, setExpenseCategories] = useState([
@@ -2404,6 +2407,22 @@ export default function KasirApp() {
       .reduce((sum, receivable) => sum + (receivable.amount || 0), 0);
   };
   
+  // Employee edit functions
+  const startEditingEmployee = (employee) => {
+    setEditingEmployee({...employee});
+  };
+  
+  const cancelEditingEmployee = () => {
+    setEditingEmployee(null);
+  };
+  
+  const saveEditedEmployee = () => {
+    if (editingEmployee) {
+      setEmployees(employees.map(emp => emp.id === editingEmployee.id ? editingEmployee : emp));
+      setEditingEmployee(null);
+    }
+  };
+  
   // Reset all data
   const resetAllData = () => {
     if (confirm('Apakah Anda yakin ingin menghapus semua data? Tindakan ini tidak dapat dibatalkan.')) {
@@ -2732,7 +2751,7 @@ export default function KasirApp() {
       }
     });
     
-    // Get today's expenses
+    // Get today's expenses (SEMUA pengeluaran)
     const todayExpenses = expenses.filter(expense => expense.date === today)
       .reduce((sum, expense) => sum + (expense.amount || 0), 0);
     
@@ -2812,7 +2831,7 @@ export default function KasirApp() {
       }
     });
     
-    // Get monthly expenses
+    // Get monthly expenses (SEMUA pengeluaran)
     const monthlyExpenses = expenses.filter(expense => {
       if (!expense.date) return false;
       const expenseDate = new Date(expense.date);
@@ -2959,7 +2978,7 @@ export default function KasirApp() {
       }
     });
     
-    // Get yearly expenses
+    // Get yearly expenses (SEMUA pengeluaran)
     const yearlyExpenses = expenses.filter(expense => {
       if (!expense.date) return false;
       const expenseDate = new Date(expense.date);
@@ -4538,7 +4557,7 @@ export default function KasirApp() {
                       </div>
                       
                       <button
-                        className="mt-4 bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-md transition w-full"
+                        className="mt-4 bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-md transition"
                         onClick={addSupplier}
                       >
                         Tambah Supplier
@@ -5700,6 +5719,12 @@ export default function KasirApp() {
                                 >
                                   Slip Gaji
                                 </button>
+                                <button
+                                  className="text-yellow-600 hover:text-yellow-900 mr-3"
+                                  onClick={() => startEditingEmployee(employee)}
+                                >
+                                  Edit
+                                </button>
                                 {employee.employmentType === 'full_time' ? (
                                   <button
                                     className="text-green-600 hover:text-green-900 mr-3"
@@ -5839,6 +5864,118 @@ export default function KasirApp() {
                           </div>
                         </div>
                       </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {/* Edit Employee Modal */}
+            {editingEmployee && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+                  <div className="p-6">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-lg font-medium">Edit Karyawan</h3>
+                      <button
+                        className="text-gray-500 hover:text-gray-700"
+                        onClick={cancelEditingEmployee}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Nama</label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={editingEmployee.name}
+                          onChange={(e) => setEditingEmployee({...editingEmployee, name: e.target.value})}
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Jabatan</label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={editingEmployee.position}
+                          onChange={(e) => setEditingEmployee({...editingEmployee, position: e.target.value})}
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Tipe Karyawan</label>
+                        <select
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={editingEmployee.employmentType}
+                          onChange={(e) => setEditingEmployee({...editingEmployee, employmentType: e.target.value})}
+                        >
+                          <option value="full_time">Full Time</option>
+                          <option value="part_time">Part Time</option>
+                        </select>
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Gaji Pokok</label>
+                        <input
+                          type="text"
+                          min="0"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={formatCurrencyInput(editingEmployee.baseSalary)}
+                          onChange={(e) => setEditingEmployee({...editingEmployee, baseSalary: parseCurrencyInput(e.target.value)})}
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Tunjangan</label>
+                        <input
+                          type="text"
+                          min="0"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={formatCurrencyInput(editingEmployee.allowances)}
+                          onChange={(e) => setEditingEmployee({...editingEmployee, allowances: parseCurrencyInput(e.target.value)})}
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Potongan</label>
+                        <input
+                          type="text"
+                          min="0"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={formatCurrencyInput(editingEmployee.deductions)}
+                          onChange={(e) => setEditingEmployee({...editingEmployee, deductions: parseCurrencyInput(e.target.value)})}
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Bayaran per Jam (untuk part time)</label>
+                        <input
+                          type="text"
+                          min="0"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={formatCurrencyInput(editingEmployee.hourlyRate)}
+                          onChange={(e) => setEditingEmployee({...editingEmployee, hourlyRate: parseCurrencyInput(e.target.value)})}
+                        />
+                      </div>
+                    </div>
+                    
+                    <div className="flex justify-end space-x-3 mt-6">
+                      <button
+                        className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                        onClick={cancelEditingEmployee}
+                      >
+                        Batal
+                      </button>
+                      <button
+                        className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
+                        onClick={saveEditedEmployee}
+                      >
+                        Simpan Perubahan
+                      </button>
                     </div>
                   </div>
                 </div>
