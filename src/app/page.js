@@ -6,6 +6,7 @@ import 'jspdf-autotable';
 // Import Chart.js untuk grafik
 import { Chart, registerables } from 'chart.js';
 Chart.register(...registerables);
+
 // Storage helpers
 const StorageManager = {
   get: (key) => {
@@ -85,6 +86,7 @@ const StorageManager = {
     }
   }
 };
+
 // Utility functions
 const formatCurrency = (amount) => {
   if (typeof amount !== 'number' || isNaN(amount)) {
@@ -102,6 +104,7 @@ const formatCurrency = (amount) => {
     return `Rp ${amount.toLocaleString('id-ID')}`;
   }
 };
+
 // Format currency untuk input field
 const formatCurrencyInput = (value) => {
   // Pastikan value adalah string
@@ -118,6 +121,7 @@ const formatCurrencyInput = (value) => {
   // Format dengan titik sebagai pemisah ribuan
   return numberValue.toLocaleString('id-ID');
 };
+
 // Parse formatted currency back to number
 const parseCurrencyInput = (formattedValue) => {
   // Pastikan formattedValue adalah string
@@ -128,6 +132,7 @@ const parseCurrencyInput = (formattedValue) => {
   // Hapus titik dan konversi ke number
   return parseInt(formattedValue.replace(/\./g, ''), 10) || 0;
 };
+
 const formatDate = (date) => {
   if (!date) return '';
   try {
@@ -137,6 +142,7 @@ const formatDate = (date) => {
     return String(date);
   }
 };
+
 const formatDateTime = (date) => {
   if (!date) return '';
   try {
@@ -146,6 +152,7 @@ const formatDateTime = (date) => {
     return String(date);
   }
 };
+
 export default function KasirApp() {
   // State for active tab
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -184,7 +191,9 @@ export default function KasirApp() {
     devices: [],
     maxPower: 900, // Default 900W
     lastTopUp: null,
-    lastTopUpAmount: 0
+    lastTopUpAmount: 0,
+    // Tambahkan state untuk tracking biaya listrik harian
+    dailyCosts: {} // Format: { 'YYYY-MM-DD': cost }
   });
   
   // State for HR & Salary
@@ -250,8 +259,14 @@ export default function KasirApp() {
     category: '',
     description: '',
     amount: 0,
-    date: new Date().toISOString().split('T')[0]
+    date: new Date().toISOString().split('T')[0],
+    unit: '',
+    quantity: 1,
+    unitPrice: 0
   });
+  
+  // State for editing expense
+  const [editingExpense, setEditingExpense] = useState(null);
   
   // State for accommodation costs
   const [accommodationCosts, setAccommodationCosts] = useState([]);
@@ -263,6 +278,9 @@ export default function KasirApp() {
     cost: 0,
     vehicle: ''
   });
+  
+  // State for editing accommodation
+  const [editingAccommodation, setEditingAccommodation] = useState(null);
   
   // State for assets and depreciation
   const [assets, setAssets] = useState([]);
@@ -287,6 +305,9 @@ export default function KasirApp() {
     depreciationMethod: 'straight_line' // or 'reducing_balance'
   });
   
+  // State for editing asset
+  const [editingAsset, setEditingAsset] = useState(null);
+  
   // State for chart type
   const [chartType, setChartType] = useState('daily');
   
@@ -306,6 +327,9 @@ export default function KasirApp() {
     phone: ''
   });
   
+  // State for editing supplier
+  const [editingSupplier, setEditingSupplier] = useState(null);
+  
   // State for stock opname
   const [stockOpname, setStockOpname] = useState([]);
   const [newStockOpname, setNewStockOpname] = useState({
@@ -313,6 +337,9 @@ export default function KasirApp() {
     notes: '',
     items: []
   });
+  
+  // State for editing stock opname
+  const [editingStockOpname, setEditingStockOpname] = useState(null);
   
   // State for data loaded
   const [dataLoaded, setDataLoaded] = useState(false);
@@ -337,6 +364,9 @@ export default function KasirApp() {
     hourlyRate: 0,
     description: ''
   });
+  
+  // State for editing work record
+  const [editingWorkRecord, setEditingWorkRecord] = useState(null);
   
   // State for profit distribution
   const [profitDistribution, setProfitDistribution] = useState({
@@ -368,6 +398,24 @@ export default function KasirApp() {
     description: '',
     status: 'unpaid'
   });
+  
+  // State for editing debt
+  const [editingDebt, setEditingDebt] = useState(null);
+  
+  // State for editing receivable
+  const [editingReceivable, setEditingReceivable] = useState(null);
+  
+  // State for electricity vouchers
+  const [newVoucher, setNewVoucher] = useState({ date: new Date().toISOString().split('T')[0], amount: 0 });
+  
+  // State for editing voucher
+  const [editingVoucher, setEditingVoucher] = useState(null);
+  
+  // State for electricity devices
+  const [newDevice, setNewDevice] = useState({ name: '', watt: 0, hours: 24 });
+  
+  // State for editing device
+  const [editingDevice, setEditingDevice] = useState(null);
   
   // Ref for charts
   const chartRef = useRef(null);
@@ -600,6 +648,49 @@ export default function KasirApp() {
     };
   }, [activeTab, chartType, dataLoaded]);
   
+  // Fungsi untuk menghitung dan menyimpan biaya listrik harian
+  const calculateDailyElectricityCost = (date) => {
+    // Jika sudah ada biaya listrik untuk tanggal ini, kembalikan nilai tersebut
+    if (electricityData.dailyCosts && electricityData.dailyCosts[date]) {
+      return electricityData.dailyCosts[date];
+    }
+    
+    // Hitung penggunaan listrik harian
+    const totalPower = electricityData.devices.reduce((sum, device) => sum + (device.watt || 0), 0);
+    const dailyUsage = (totalPower * 24) / 1000; // kWh per day
+    
+    // Tarif listrik (Rp 1,444.70 per kWh)
+    const electricityRate = 1444.70;
+    const dailyCost = dailyUsage * electricityRate;
+    
+    // Return the calculated cost without updating state
+    return dailyCost;
+  };
+  
+  // Function to update daily electricity costs
+  const updateDailyElectricityCost = (date) => {
+    // Hitung penggunaan listrik harian
+    const totalPower = electricityData.devices.reduce((sum, device) => sum + (device.watt || 0), 0);
+    const dailyUsage = (totalPower * 24) / 1000; // kWh per day
+    
+    // Tarif listrik (Rp 1,444.70 per kWh)
+    const electricityRate = 1444.70;
+    const dailyCost = dailyUsage * electricityRate;
+    
+    // Simpan biaya listrik harian
+    const updatedDailyCosts = {
+      ...electricityData.dailyCosts,
+      [date]: dailyCost
+    };
+    
+    setElectricityData(prevData => ({
+      ...prevData,
+      dailyCosts: updatedDailyCosts
+    }));
+    
+    return dailyCost;
+  };
+  
   // Render dashboard charts
   const renderDashboardCharts = () => {
     if (!dataLoaded) return;
@@ -727,7 +818,10 @@ export default function KasirApp() {
         const dayReceivableCollections = receivables.filter(r => r.date === dateStr && r.status === 'paid')
           .reduce((sum, r) => sum + (r.amount || 0), 0);
         
-        const dayProfit = daySales - dayCost - dayExpenses - dayAccommodation - dayDepreciation - daySalaries - dayDebtPayments + dayReceivableCollections;
+        // Get electricity cost for the day (OTOMATIS)
+        const dayElectricityCost = calculateDailyElectricityCost(dateStr);
+        
+        const dayProfit = daySales - dayCost - dayExpenses - dayAccommodation - dayDepreciation - daySalaries - dayDebtPayments + dayReceivableCollections - dayElectricityCost;
         profitData.push(dayProfit);
       }
       
@@ -896,7 +990,10 @@ export default function KasirApp() {
         const dayReceivableCollections = receivables.filter(r => r.date === dateStr && r.status === 'paid')
           .reduce((sum, r) => sum + (r.amount || 0), 0);
         
-        const dayProfit = daySales - dayCost - dayExpenses - dayAccommodation - dayDepreciation - daySalaries - dayDebtPayments + dayReceivableCollections;
+        // Get electricity cost for the day (OTOMATIS)
+        const dayElectricityCost = calculateDailyElectricityCost(dateStr);
+        
+        const dayProfit = daySales - dayCost - dayExpenses - dayAccommodation - dayDepreciation - daySalaries - dayDebtPayments + dayReceivableCollections - dayElectricityCost;
         profitData.push(dayProfit);
       }
       
@@ -989,7 +1086,14 @@ export default function KasirApp() {
           return rDate.getFullYear() === year && rDate.getMonth() === month && r.status === 'paid';
         }).reduce((sum, r) => sum + (r.amount || 0), 0);
         
-        const monthProfit = monthSales - monthCost - monthExpenses - monthAccommodation - monthDepreciation - monthSalaries - monthDebtPayments + monthReceivableCollections;
+        // Get electricity cost for the month (OTOMATIS)
+        let monthElectricityCost = 0;
+        for (let day = 1; day <= new Date(year, month + 1, 0).getDate(); day++) {
+          const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+          monthElectricityCost += calculateDailyElectricityCost(dateStr);
+        }
+        
+        const monthProfit = monthSales - monthCost - monthExpenses - monthAccommodation - monthDepreciation - monthSalaries - monthDebtPayments + monthReceivableCollections - monthElectricityCost;
         profitData.push(monthProfit);
       }
       
@@ -1079,7 +1183,16 @@ export default function KasirApp() {
           return rDate.getFullYear() === year && r.status === 'paid';
         }).reduce((sum, r) => sum + (r.amount || 0), 0);
         
-        const yearProfit = yearSales - yearCost - yearExpenses - yearAccommodation - yearDepreciation - yearSalaries - yearDebtPayments + yearReceivableCollections;
+        // Get electricity cost for the year (OTOMATIS)
+        let yearElectricityCost = 0;
+        for (let month = 0; month < 12; month++) {
+          for (let day = 1; day <= new Date(year, month + 1, 0).getDate(); day++) {
+            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            yearElectricityCost += calculateDailyElectricityCost(dateStr);
+          }
+        }
+        
+        const yearProfit = yearSales - yearCost - yearExpenses - yearAccommodation - yearDepreciation - yearSalaries - yearDebtPayments + yearReceivableCollections - yearElectricityCost;
         profitData.push(yearProfit);
       }
       
@@ -1276,7 +1389,7 @@ export default function KasirApp() {
   
   // Product functions
   const startEditingProduct = (product) => {
-    setEditingProduct(product);
+    setEditingProduct({...product});
   };
   
   const cancelEditingProduct = () => {
@@ -1410,13 +1523,39 @@ export default function KasirApp() {
         category: '',
         description: '',
         amount: 0,
-        date: new Date().toISOString().split('T')[0]
+        date: new Date().toISOString().split('T')[0],
+        unit: '',
+        quantity: 1,
+        unitPrice: 0
       });
     }
   };
   
+  const updateExpense = (id, field, value) => {
+    setExpenses(prevExpenses => 
+      prevExpenses.map(expense => 
+        expense.id === id ? { ...expense, [field]: value } : expense
+      )
+    );
+  };
+  
   const removeExpense = (id) => {
     setExpenses(expenses.filter(expense => expense.id !== id));
+  };
+  
+  const startEditingExpense = (expense) => {
+    setEditingExpense({...expense});
+  };
+  
+  const cancelEditingExpense = () => {
+    setEditingExpense(null);
+  };
+  
+  const saveEditedExpense = () => {
+    if (editingExpense) {
+      setExpenses(expenses.map(e => e.id === editingExpense.id ? editingExpense : e));
+      setEditingExpense(null);
+    }
   };
   
   const calculateTotalExpenses = () => {
@@ -1487,8 +1626,31 @@ export default function KasirApp() {
     }
   };
   
+  const updateAccommodation = (id, field, value) => {
+    setAccommodationCosts(prevCosts => 
+      prevCosts.map(cost => 
+        cost.id === id ? { ...cost, [field]: value } : cost
+      )
+    );
+  };
+  
   const removeAccommodation = (id) => {
     setAccommodationCosts(accommodationCosts.filter(cost => cost.id !== id));
+  };
+  
+  const startEditingAccommodation = (accommodation) => {
+    setEditingAccommodation({...accommodation});
+  };
+  
+  const cancelEditingAccommodation = () => {
+    setEditingAccommodation(null);
+  };
+  
+  const saveEditedAccommodation = () => {
+    if (editingAccommodation) {
+      setAccommodationCosts(accommodationCosts.map(a => a.id === editingAccommodation.id ? editingAccommodation : a));
+      setEditingAccommodation(null);
+    }
   };
   
   const calculateTotalAccommodationCosts = () => {
@@ -1557,8 +1719,75 @@ export default function KasirApp() {
     }
   };
   
+  const updateAsset = (id, field, value) => {
+    setAssets(prevAssets => 
+      prevAssets.map(asset => 
+        asset.id === id ? { ...asset, [field]: value } : asset
+      )
+    );
+  };
+  
   const removeAsset = (id) => {
     setAssets(assets.filter(asset => asset.id !== id));
+  };
+  
+  const startEditingAsset = (asset) => {
+    setEditingAsset({...asset});
+  };
+  
+  const cancelEditingAsset = () => {
+    setEditingAsset(null);
+  };
+  
+  const saveEditedAsset = () => {
+    if (editingAsset) {
+      // Recalculate depreciation values
+      const purchaseDate = new Date(editingAsset.purchaseDate);
+      const currentDate = new Date();
+      
+      // Calculate years difference
+      const yearsDiff = (currentDate - purchaseDate) / (365 * 24 * 60 * 60 * 1000);
+      
+      let annualDepreciation = 0;
+      let accumulatedDepreciation = 0;
+      let bookValue = editingAsset.purchasePrice;
+      
+      if (editingAsset.depreciationMethod === 'straight_line') {
+        // Straight line method
+        annualDepreciation = (editingAsset.purchasePrice - editingAsset.salvageValue) / editingAsset.usefulLife;
+        accumulatedDepreciation = annualDepreciation * yearsDiff;
+        bookValue = Math.max(editingAsset.salvageValue, editingAsset.purchasePrice - accumulatedDepreciation);
+      } else {
+        // Reducing balance method
+        const depreciationRate = 2 / editingAsset.usefulLife;
+        let currentBookValue = editingAsset.purchasePrice;
+        
+        for (let i = 0; i < Math.floor(yearsDiff); i++) {
+          const yearDepreciation = currentBookValue * depreciationRate;
+          accumulatedDepreciation += yearDepreciation;
+          currentBookValue -= yearDepreciation;
+          
+          // Don't depreciate below salvage value
+          if (currentBookValue <= editingAsset.salvageValue) {
+            currentBookValue = editingAsset.salvageValue;
+            break;
+          }
+        }
+        
+        annualDepreciation = currentBookValue * depreciationRate;
+        bookValue = Math.max(editingAsset.salvageValue, currentBookValue);
+      }
+      
+      const updatedAsset = {
+        ...editingAsset,
+        annualDepreciation,
+        accumulatedDepreciation,
+        bookValue
+      };
+      
+      setAssets(assets.map(a => a.id === editingAsset.id ? updatedAsset : a));
+      setEditingAsset(null);
+    }
   };
   
   const calculateDepreciation = (asset, date) => {
@@ -1718,10 +1947,12 @@ export default function KasirApp() {
     }));
   };
   
-  const addElectricityDevice = (device) => {
+  const updateElectricityVoucher = (id, field, value) => {
     setElectricityData(prevData => ({
       ...prevData,
-      devices: [...prevData.devices, { ...device, id: Date.now() }]
+      vouchers: prevData.vouchers.map(voucher => 
+        voucher.id === id ? { ...voucher, [field]: value } : voucher
+      )
     }));
   };
   
@@ -1732,11 +1963,63 @@ export default function KasirApp() {
     }));
   };
   
+  const startEditingVoucher = (voucher) => {
+    setEditingVoucher({...voucher});
+  };
+  
+  const cancelEditingVoucher = () => {
+    setEditingVoucher(null);
+  };
+  
+  const saveEditedVoucher = () => {
+    if (editingVoucher) {
+      setElectricityData(prevData => ({
+        ...prevData,
+        vouchers: prevData.vouchers.map(v => v.id === editingVoucher.id ? editingVoucher : v)
+      }));
+      setEditingVoucher(null);
+    }
+  };
+  
+  const addElectricityDevice = (device) => {
+    setElectricityData(prevData => ({
+      ...prevData,
+      devices: [...prevData.devices, { ...device, id: Date.now() }]
+    }));
+  };
+  
+  const updateElectricityDevice = (id, field, value) => {
+    setElectricityData(prevData => ({
+      ...prevData,
+      devices: prevData.devices.map(device => 
+        device.id === id ? { ...device, [field]: value } : device
+      )
+    }));
+  };
+  
   const removeElectricityDevice = (id) => {
     setElectricityData(prevData => ({
       ...prevData,
       devices: prevData.devices.filter(device => device.id !== id)
     }));
+  };
+  
+  const startEditingDevice = (device) => {
+    setEditingDevice({...device});
+  };
+  
+  const cancelEditingDevice = () => {
+    setEditingDevice(null);
+  };
+  
+  const saveEditedDevice = () => {
+    if (editingDevice) {
+      setElectricityData(prevData => ({
+        ...prevData,
+        devices: prevData.devices.map(d => d.id === editingDevice.id ? editingDevice : d)
+      }));
+      setEditingDevice(null);
+    }
   };
   
   const updateMaxPower = (power) => {
@@ -2023,8 +2306,31 @@ export default function KasirApp() {
     ]);
   };
   
+  const updateWorkRecord = (id, field, value) => {
+    setEmployeeWorkHistory(prevHistory => 
+      prevHistory.map(record => 
+        record.id === id ? { ...record, [field]: value } : record
+      )
+    );
+  };
+  
   const removeWorkRecord = (id) => {
     setEmployeeWorkHistory(prevHistory => prevHistory.filter(record => record.id !== id));
+  };
+  
+  const startEditingWorkRecord = (record) => {
+    setEditingWorkRecord({...record});
+  };
+  
+  const cancelEditingWorkRecord = () => {
+    setEditingWorkRecord(null);
+  };
+  
+  const saveEditedWorkRecord = () => {
+    if (editingWorkRecord) {
+      setEmployeeWorkHistory(employeeWorkHistory.map(r => r.id === editingWorkRecord.id ? editingWorkRecord : r));
+      setEditingWorkRecord(null);
+    }
   };
   
   const getEmployeeWorkHistory = (employeeId) => {
@@ -2117,6 +2423,21 @@ export default function KasirApp() {
     setSuppliers(suppliers.filter(supplier => supplier.id !== id));
   };
   
+  const startEditingSupplier = (supplier) => {
+    setEditingSupplier({...supplier});
+  };
+  
+  const cancelEditingSupplier = () => {
+    setEditingSupplier(null);
+  };
+  
+  const saveEditedSupplier = () => {
+    if (editingSupplier) {
+      setSuppliers(suppliers.map(s => s.id === editingSupplier.id ? editingSupplier : s));
+      setEditingSupplier(null);
+    }
+  };
+  
   // Stock Opname functions
   const startStockOpname = () => {
     // Initialize new stock opname with all products
@@ -2176,6 +2497,25 @@ export default function KasirApp() {
       
       alert('Stock opname berhasil disimpan!');
     }
+  };
+  
+  const startEditingStockOpname = (opname) => {
+    setEditingStockOpname({...opname});
+  };
+  
+  const cancelEditingStockOpname = () => {
+    setEditingStockOpname(null);
+  };
+  
+  const saveEditedStockOpname = () => {
+    if (editingStockOpname) {
+      setStockOpname(stockOpname.map(s => s.id === editingStockOpname.id ? editingStockOpname : s));
+      setEditingStockOpname(null);
+    }
+  };
+  
+  const removeStockOpname = (id) => {
+    setStockOpname(stockOpname.filter(opname => opname.id !== id));
   };
   
   // Category management functions
@@ -2325,8 +2665,31 @@ export default function KasirApp() {
     }
   };
   
+  const updateDebt = (id, field, value) => {
+    setDebts(prevDebts => 
+      prevDebts.map(debt => 
+        debt.id === id ? { ...debt, [field]: value } : debt
+      )
+    );
+  };
+  
   const removeDebt = (id) => {
     setDebts(debts.filter(debt => debt.id !== id));
+  };
+  
+  const startEditingDebt = (debt) => {
+    setEditingDebt({...debt});
+  };
+  
+  const cancelEditingDebt = () => {
+    setEditingDebt(null);
+  };
+  
+  const saveEditedDebt = () => {
+    if (editingDebt) {
+      setDebts(debts.map(d => d.id === editingDebt.id ? editingDebt : d));
+      setEditingDebt(null);
+    }
   };
   
   const markDebtAsPaid = (id) => {
@@ -2373,8 +2736,31 @@ export default function KasirApp() {
     }
   };
   
+  const updateReceivable = (id, field, value) => {
+    setReceivables(prevReceivables => 
+      prevReceivables.map(receivable => 
+        receivable.id === id ? { ...receivable, [field]: value } : receivable
+      )
+    );
+  };
+  
   const removeReceivable = (id) => {
     setReceivables(receivables.filter(receivable => receivable.id !== id));
+  };
+  
+  const startEditingReceivable = (receivable) => {
+    setEditingReceivable({...receivable});
+  };
+  
+  const cancelEditingReceivable = () => {
+    setEditingReceivable(null);
+  };
+  
+  const saveEditedReceivable = () => {
+    if (editingReceivable) {
+      setReceivables(receivables.map(r => r.id === editingReceivable.id ? editingReceivable : r));
+      setEditingReceivable(null);
+    }
   };
   
   const markReceivableAsPaid = (id) => {
@@ -2444,7 +2830,8 @@ export default function KasirApp() {
         devices: [],
         maxPower: 900,
         lastTopUp: null,
-        lastTopUpAmount: 0
+        lastTopUpAmount: 0,
+        dailyCosts: {}
       });
       setEmployees([]);
       setEmployeeWorkHistory([]);
@@ -2676,36 +3063,38 @@ export default function KasirApp() {
     doc.text(`Gaji Karyawan: ${formatCurrency(dailyReport.todaySalaries)}`, 20, 85);
     doc.text(`Pembayaran Hutang: ${formatCurrency(dailyReport.todayDebtPayments)}`, 20, 90);
     doc.text(`Penerimaan Piutang: ${formatCurrency(dailyReport.todayReceivableCollections)}`, 20, 95);
-    doc.text(`Laba Bersih: ${formatCurrency(dailyReport.netProfit)}`, 20, 100);
+    doc.text(`Biaya Listrik: ${formatCurrency(dailyReport.todayElectricityCost)}`, 20, 100);
+    doc.text(`Laba Bersih: ${formatCurrency(dailyReport.netProfit)}`, 20, 105);
     
     // Monthly report
     doc.setFontSize(14);
-    doc.text('Laporan Bulanan', 20, 115);
+    doc.text('Laporan Bulanan', 20, 120);
     doc.setFontSize(10);
-    doc.text(`Bulan: ${monthlyReport.month}/${monthlyReport.year}`, 20, 125);
-    doc.text(`Total Penjualan: ${formatCurrency(monthlyReport.totalSales)}`, 20, 130);
-    doc.text(`Total HPP: ${formatCurrency(monthlyReport.totalCost)}`, 20, 135);
-    doc.text(`Laba Kotor: ${formatCurrency(monthlyReport.grossProfit)}`, 20, 140);
-    doc.text(`Pengeluaran: ${formatCurrency(monthlyReport.monthlyExpenses)}`, 20, 145);
-    doc.text(`Biaya Akomodasi: ${formatCurrency(monthlyReport.monthlyAccommodation)}`, 20, 150);
-    doc.text(`Depresiasi: ${formatCurrency(monthlyReport.monthlyDepreciation)}`, 20, 155);
-    doc.text(`Gaji Karyawan: ${formatCurrency(monthlyReport.monthlySalaries)}`, 20, 160);
-    doc.text(`Pembayaran Hutang: ${formatCurrency(monthlyReport.monthlyDebtPayments)}`, 20, 165);
-    doc.text(`Penerimaan Piutang: ${formatCurrency(monthlyReport.monthlyReceivableCollections)}`, 20, 170);
-    doc.text(`Laba Bersih: ${formatCurrency(monthlyReport.netProfit)}`, 20, 175);
+    doc.text(`Bulan: ${monthlyReport.month}/${monthlyReport.year}`, 20, 130);
+    doc.text(`Total Penjualan: ${formatCurrency(monthlyReport.totalSales)}`, 20, 135);
+    doc.text(`Total HPP: ${formatCurrency(monthlyReport.totalCost)}`, 20, 140);
+    doc.text(`Laba Kotor: ${formatCurrency(monthlyReport.grossProfit)}`, 20, 145);
+    doc.text(`Pengeluaran: ${formatCurrency(monthlyReport.monthlyExpenses)}`, 20, 150);
+    doc.text(`Biaya Akomodasi: ${formatCurrency(monthlyReport.monthlyAccommodation)}`, 20, 155);
+    doc.text(`Depresiasi: ${formatCurrency(monthlyReport.monthlyDepreciation)}`, 20, 160);
+    doc.text(`Gaji Karyawan: ${formatCurrency(monthlyReport.monthlySalaries)}`, 20, 165);
+    doc.text(`Pembayaran Hutang: ${formatCurrency(monthlyReport.monthlyDebtPayments)}`, 20, 170);
+    doc.text(`Penerimaan Piutang: ${formatCurrency(monthlyReport.monthlyReceivableCollections)}`, 20, 175);
+    doc.text(`Biaya Listrik: ${formatCurrency(monthlyReport.monthlyElectricityCost)}`, 20, 180);
+    doc.text(`Laba Bersih: ${formatCurrency(monthlyReport.netProfit)}`, 20, 185);
     
     // Profit distribution
     doc.setFontSize(14);
-    doc.text('Pembagian Laba', 20, 190);
+    doc.text('Pembagian Laba', 20, 200);
     doc.setFontSize(10);
-    doc.text(`Total Laba Bersih: ${formatCurrency(profitDistribution.netProfit)}`, 20, 200);
-    doc.text(`Bagian Usaha (${profitDistribution.businessPercentage}%): ${formatCurrency(profitDistribution.businessAmount)}`, 20, 205);
-    doc.text(`Bagian Founder (${profitDistribution.founderPercentage}%): ${formatCurrency(profitDistribution.founderAmount)}`, 20, 210);
-    doc.text(`Simpanan Usaha (${profitDistribution.businessSavingsPercentage}% dari bagian usaha): ${formatCurrency(profitDistribution.businessSavingsAmount)}`, 20, 215);
+    doc.text(`Total Laba Bersih: ${formatCurrency(profitDistribution.netProfit)}`, 20, 210);
+    doc.text(`Bagian Usaha (${profitDistribution.businessPercentage}%): ${formatCurrency(profitDistribution.businessAmount)}`, 20, 215);
+    doc.text(`Bagian Founder (${profitDistribution.founderPercentage}%): ${formatCurrency(profitDistribution.founderAmount)}`, 20, 220);
+    doc.text(`Simpanan Usaha (${profitDistribution.businessSavingsPercentage}% dari bagian usaha): ${formatCurrency(profitDistribution.businessSavingsAmount)}`, 20, 225);
     
     // Founder distribution
     profitDistribution.founderShares.forEach((founder, index) => {
-      doc.text(`${founder.name} (${founder.percentage.toFixed(2)}%): ${formatCurrency(founder.amount)}`, 20, 220 + (index * 5));
+      doc.text(`${founder.name} (${founder.percentage.toFixed(2)}%): ${formatCurrency(founder.amount)}`, 20, 230 + (index * 5));
     });
     
     // Expense breakdown
@@ -2718,7 +3107,7 @@ export default function KasirApp() {
     doc.autoTable({
       head: [['Kategori', 'Jumlah']],
       body: expenseTableData,
-      startY: 240,
+      startY: 250,
       theme: 'grid'
     });
     
@@ -2773,9 +3162,12 @@ export default function KasirApp() {
     const todayReceivableCollections = receivables.filter(r => r.date === today && r.status === 'paid')
       .reduce((sum, r) => sum + (r.amount || 0), 0);
     
+    // Get today's electricity cost (OTOMATIS)
+    const todayElectricityCost = calculateDailyElectricityCost(today);
+    
     // Calculate gross profit and net profit
     const grossProfit = totalSales - totalCost;
-    const netProfit = grossProfit - todayExpenses - todayAccommodation - todayDepreciation - todaySalaries - todayDebtPayments + todayReceivableCollections;
+    const netProfit = grossProfit - todayExpenses - todayAccommodation - todayDepreciation - todaySalaries - todayDebtPayments + todayReceivableCollections - todayElectricityCost;
     
     // Get today's financial records
     const todayFinancialRecords = financialRecords.filter(record => record.date === today);
@@ -2796,6 +3188,7 @@ export default function KasirApp() {
       todaySalaries,
       todayDebtPayments,
       todayReceivableCollections,
+      todayElectricityCost,
       netProfit,
       transactions: todayTransactions,
       financialRecords: todayFinancialRecords,
@@ -2869,9 +3262,16 @@ export default function KasirApp() {
              rDate.getFullYear() === currentYear && r.status === 'paid';
     }).reduce((sum, r) => sum + (r.amount || 0), 0);
     
+    // Get monthly electricity cost (OTOMATIS)
+    let monthlyElectricityCost = 0;
+    for (let day = 1; day <= new Date(currentYear, currentMonth + 1, 0).getDate(); day++) {
+      const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      monthlyElectricityCost += calculateDailyElectricityCost(dateStr);
+    }
+    
     // Calculate gross profit and net profit
     const grossProfit = totalSales - totalCost;
-    const netProfit = grossProfit - monthlyExpenses - monthlyAccommodation - monthlyDepreciation - monthlySalaries - monthlyDebtPayments + monthlyReceivableCollections;
+    const netProfit = grossProfit - monthlyExpenses - monthlyAccommodation - monthlyDepreciation - monthlySalaries - monthlyDebtPayments + monthlyReceivableCollections - monthlyElectricityCost;
     
     // Get monthly financial records
     const monthlyFinancialRecords = financialRecords.filter(record => {
@@ -2927,8 +3327,11 @@ export default function KasirApp() {
       const dayReceivableCollections = receivables.filter(r => r.date === day && r.status === 'paid')
         .reduce((sum, r) => sum + (r.amount || 0), 0);
       
+      // Get electricity cost for the day (OTOMATIS)
+      const dayElectricityCost = calculateDailyElectricityCost(day);
+      
       dailyData[day].grossProfit = dailyData[day].totalSales - dailyData[day].totalCost;
-      dailyData[day].netProfit = dailyData[day].grossProfit - dayExpenses - dayAccommodation - dayDepreciation - daySalaries - dayDebtPayments + dayReceivableCollections;
+      dailyData[day].netProfit = dailyData[day].grossProfit - dayExpenses - dayAccommodation - dayDepreciation - daySalaries - dayDebtPayments + dayReceivableCollections - dayElectricityCost;
     });
     
     return {
@@ -2945,6 +3348,7 @@ export default function KasirApp() {
       monthlySalaries,
       monthlyDebtPayments,
       monthlyReceivableCollections,
+      monthlyElectricityCost,
       netProfit,
       financialRecords: monthlyFinancialRecords,
       profitDistribution,
@@ -3012,9 +3416,18 @@ export default function KasirApp() {
       return rDate.getFullYear() === currentYear && r.status === 'paid';
     }).reduce((sum, r) => sum + (r.amount || 0), 0);
     
+    // Get yearly electricity cost (OTOMATIS)
+    let yearlyElectricityCost = 0;
+    for (let month = 0; month < 12; month++) {
+      for (let day = 1; day <= new Date(currentYear, month + 1, 0).getDate(); day++) {
+        const dateStr = `${currentYear}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        yearlyElectricityCost += calculateDailyElectricityCost(dateStr);
+      }
+    }
+    
     // Calculate gross profit and net profit
     const grossProfit = totalSales - totalCost;
-    const netProfit = grossProfit - yearlyExpenses - yearlyAccommodation - yearlyDepreciation - yearlySalaries - yearlyDebtPayments + yearlyReceivableCollections;
+    const netProfit = grossProfit - yearlyExpenses - yearlyAccommodation - yearlyDepreciation - yearlySalaries - yearlyDebtPayments + yearlyReceivableCollections - yearlyElectricityCost;
     
     // Get yearly financial records
     const yearlyFinancialRecords = financialRecords.filter(record => {
@@ -3086,8 +3499,15 @@ export default function KasirApp() {
                rDate.getFullYear() === currentYear && r.status === 'paid';
       }).reduce((sum, r) => sum + (r.amount || 0), 0);
       
+      // Get electricity cost for the month (OTOMATIS)
+      let monthElectricityCost = 0;
+      for (let day = 1; day <= new Date(currentYear, month, 0).getDate(); day++) {
+        const dateStr = `${currentYear}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        monthElectricityCost += calculateDailyElectricityCost(dateStr);
+      }
+      
       monthlyData[month].grossProfit = monthlyData[month].totalSales - monthlyData[month].totalCost;
-      monthlyData[month].netProfit = monthlyData[month].grossProfit - monthExpenses - monthAccommodation - monthDepreciation - monthSalaries - monthDebtPayments + monthReceivableCollections;
+      monthlyData[month].netProfit = monthlyData[month].grossProfit - monthExpenses - monthAccommodation - monthDepreciation - monthSalaries - monthDebtPayments + monthReceivableCollections - monthElectricityCost;
     });
     
     return {
@@ -3103,6 +3523,7 @@ export default function KasirApp() {
       yearlySalaries,
       yearlyDebtPayments,
       yearlyReceivableCollections,
+      yearlyElectricityCost,
       netProfit,
       financialRecords: yearlyFinancialRecords,
       profitDistribution,
@@ -3130,8 +3551,6 @@ export default function KasirApp() {
     supplier: '',
     minStock: 0
   });
-  const [newVoucher, setNewVoucher] = useState({ date: new Date().toISOString().split('T')[0], amount: 0 });
-  const [newDevice, setNewDevice] = useState({ name: '', watt: 0, hours: 24 });
   const [newEmployee, setNewEmployee] = useState({ 
     name: '', 
     position: '', 
@@ -3519,6 +3938,7 @@ export default function KasirApp() {
                           <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Catatan</th>
                           <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Jumlah Produk</th>
                           <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Selisih</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Aksi</th>
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
@@ -3538,12 +3958,26 @@ export default function KasirApp() {
                               <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">
                                 {totalDifference}
                               </td>
+                              <td className="px-4 py-2 whitespace-nowrap text-sm font-medium">
+                                <button
+                                  className="text-yellow-600 hover:text-yellow-900 mr-3"
+                                  onClick={() => startEditingStockOpname(opname)}
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  className="text-red-600 hover:text-red-900"
+                                  onClick={() => removeStockOpname(opname.id)}
+                                >
+                                  Hapus
+                                </button>
+                              </td>
                             </tr>
                           );
                         })}
                         {stockOpname.length === 0 && (
                           <tr>
-                            <td colSpan="4" className="px-4 py-4 text-center text-sm text-gray-500">
+                            <td colSpan="5" className="px-4 py-4 text-center text-sm text-gray-500">
                               Belum ada riwayat stock opname
                             </td>
                           </tr>
@@ -3969,42 +4403,6 @@ export default function KasirApp() {
                         </div>
                         
                         <div className="md:col-span-2">
-                          <label className="block text-sm text-gray-600 mb-1">Biaya Tambahan</label>
-                          <div className="grid grid-cols-3 gap-2">
-                            <div>
-                              <label className="block text-xs text-gray-500 mb-1">Packaging</label>
-                              <input
-                                type="text"
-                                placeholder="0"
-                                className="w-full rounded-md border border-gray-300 py-1 px-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                value={formatCurrencyInput(newProduct.packagingCost || 0)}
-                                onChange={(e) => setNewProduct({...newProduct, packagingCost: parseCurrencyInput(e.target.value)})}
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-xs text-gray-500 mb-1">Processing</label>
-                              <input
-                                type="text"
-                                placeholder="0"
-                                className="w-full rounded-md border border-gray-300 py-1 px-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                value={formatCurrencyInput(newProduct.processingCost || 0)}
-                                onChange={(e) => setNewProduct({...newProduct, processingCost: parseCurrencyInput(e.target.value)})}
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-xs text-gray-500 mb-1">Lainnya</label>
-                              <input
-                                type="text"
-                                placeholder="0"
-                                className="w-full rounded-md border border-gray-300 py-1 px-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                value={formatCurrencyInput(newProduct.otherCosts || 0)}
-                                onChange={(e) => setNewProduct({...newProduct, otherCosts: parseCurrencyInput(e.target.value)})}
-                              />
-                            </div>
-                          </div>
-                        </div>
-                        
-                        <div className="md:col-span-2">
                           <label className="block text-sm text-gray-600 mb-1">Gambar Produk</label>
                           <div className="flex items-center space-x-4">
                             {newProductImage ? (
@@ -4027,62 +4425,6 @@ export default function KasirApp() {
                           </div>
                         </div>
                       </div>
-                      
-                      <div className="mt-4 p-3 bg-blue-50 rounded-md">
-                        <h4 className="font-medium text-sm text-blue-800 mb-2">Perhitungan HPP Detail</h4>
-                        <div className="text-xs text-gray-700 space-y-1">
-                          <div className="flex justify-between">
-                            <span>Harga Pokok Dasar:</span>
-                            <span>{formatCurrency(newProduct.cost || 0)}</span>
-                          </div>
-                          {newProduct.weight && (
-                            <div className="flex justify-between">
-                              <span>Harga per {newProduct.weightUnit}:</span>
-                              <span>
-                                {newProduct.weight > 0 
-                                  ? formatCurrency((newProduct.cost || 0) / newProduct.weight) 
-                                  : formatCurrency(0)}
-                              </span>
-                            </div>
-                          )}
-                          <div className="flex justify-between">
-                            <span>Biaya Packaging:</span>
-                            <span>{formatCurrency(newProduct.packagingCost || 0)}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>Biaya Processing:</span>
-                            <span>{formatCurrency(newProduct.processingCost || 0)}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>Biaya Lainnya:</span>
-                            <span>{formatCurrency(newProduct.otherCosts || 0)}</span>
-                          </div>
-                          <div className="flex justify-between font-medium border-t border-blue-200 pt-1 mt-1">
-                            <span>Total HPP:</span>
-                            <span>
-                              {formatCurrency(
-                                (newProduct.cost || 0) + 
-                                (newProduct.packagingCost || 0) + 
-                                (newProduct.processingCost || 0) + 
-                                (newProduct.otherCosts || 0)
-                              )}
-                            </span>
-                          </div>
-                          <div className="flex justify-between font-medium">
-                            <span>Laba per Unit:</span>
-                            <span className={newProduct.price > ((newProduct.cost || 0) + (newProduct.packagingCost || 0) + (newProduct.processingCost || 0) + (newProduct.otherCosts || 0)) ? 'text-green-600' : 'text-red-600'}>
-                              {formatCurrency(
-                                newProduct.price - 
-                                ((newProduct.cost || 0) + 
-                                (newProduct.packagingCost || 0) + 
-                                (newProduct.processingCost || 0) + 
-                                (newProduct.otherCosts || 0))
-                              )}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      
                       <button
                         className="mt-4 bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-md transition w-full"
                         onClick={() => {
@@ -4091,11 +4433,7 @@ export default function KasirApp() {
                             setProducts([...products, productWithId]);
                             
                             // Save product cost
-                            const totalCost = (newProduct.cost || 0) + 
-                                            (newProduct.packagingCost || 0) + 
-                                            (newProduct.processingCost || 0) + 
-                                            (newProduct.otherCosts || 0);
-                            updateProductCost(productWithId.id, totalCost);
+                            updateProductCost(productWithId.id, newProduct.cost || 0);
                             
                             // Save product details
                             updateProductDetail(productWithId.id, 'category', newProduct.category);
@@ -4105,9 +4443,6 @@ export default function KasirApp() {
                             updateProductDetail(productWithId.id, 'weightUnit', newProduct.weightUnit);
                             updateProductDetail(productWithId.id, 'supplier', newProduct.supplier);
                             updateProductDetail(productWithId.id, 'minStock', newProduct.minStock);
-                            updateProductDetail(productWithId.id, 'packagingCost', newProduct.packagingCost || 0);
-                            updateProductDetail(productWithId.id, 'processingCost', newProduct.processingCost || 0);
-                            updateProductDetail(productWithId.id, 'otherCosts', newProduct.otherCosts || 0);
                             
                             resetNewProductForm();
                             alert('Produk berhasil ditambahkan!');
@@ -4344,39 +4679,6 @@ export default function KasirApp() {
                             />
                           </div>
                           
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Biaya Packaging</label>
-                            <input
-                              type="text"
-                              min="0"
-                              className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              value={formatCurrencyInput(productDetails[editingProduct.id]?.packagingCost || 0)}
-                              onChange={(e) => updateProductDetail(editingProduct.id, 'packagingCost', parseCurrencyInput(e.target.value))}
-                            />
-                          </div>
-                          
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Biaya Processing</label>
-                            <input
-                              type="text"
-                              min="0"
-                              className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              value={formatCurrencyInput(productDetails[editingProduct.id]?.processingCost || 0)}
-                              onChange={(e) => updateProductDetail(editingProduct.id, 'processingCost', parseCurrencyInput(e.target.value))}
-                            />
-                          </div>
-                          
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Biaya Lainnya</label>
-                            <input
-                              type="text"
-                              min="0"
-                              className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              value={formatCurrencyInput(productDetails[editingProduct.id]?.otherCosts || 0)}
-                              onChange={(e) => updateProductDetail(editingProduct.id, 'otherCosts', parseCurrencyInput(e.target.value))}
-                            />
-                          </div>
-                          
                           <div className="md:col-span-2">
                             <label className="block text-sm font-medium text-gray-700 mb-1">Deskripsi</label>
                             <textarea
@@ -4419,20 +4721,12 @@ export default function KasirApp() {
                                 <span>{formatCurrency(productCosts[editingProduct.id] || 0)}</span>
                               </div>
                               <div className="flex justify-between">
-                                <span>Biaya Packaging:</span>
-                                <span>{formatCurrency(productDetails[editingProduct.id]?.packagingCost || 0)}</span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span>Biaya Processing:</span>
-                                <span>{formatCurrency(productDetails[editingProduct.id]?.processingCost || 0)}</span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span>Biaya Lainnya:</span>
-                                <span>{formatCurrency(productDetails[editingProduct.id]?.otherCosts || 0)}</span>
-                              </div>
-                              <div className="flex justify-between font-medium border-t border-blue-200 pt-1 mt-1">
-                                <span>Total HPP:</span>
-                                <span>{formatCurrency(calculateDetailedHPP(editingProduct.id))}</span>
+                                <span>Harga per {productDetails[editingProduct.id]?.weightUnit || 'unit'}:</span>
+                                <span>
+                                  {productDetails[editingProduct.id]?.weight > 0 
+                                    ? formatCurrency((productCosts[editingProduct.id] || 0) / productDetails[editingProduct.id].weight) 
+                                    : formatCurrency(0)}
+                                </span>
                               </div>
                             </div>
                             <div>
@@ -4442,28 +4736,18 @@ export default function KasirApp() {
                               </div>
                               <div className="flex justify-between font-medium">
                                 <span>Laba per Unit:</span>
-                                <span className={editingProduct.price > calculateDetailedHPP(editingProduct.id) ? 'text-green-600' : 'text-red-600'}>
-                                  {formatCurrency(editingProduct.price - calculateDetailedHPP(editingProduct.id))}
+                                <span className={editingProduct.price > (productCosts[editingProduct.id] || 0) ? 'text-green-600' : 'text-red-600'}>
+                                  {formatCurrency(editingProduct.price - (productCosts[editingProduct.id] || 0))}
                                 </span>
                               </div>
                               <div className="flex justify-between font-medium">
                                 <span>Margin Laba:</span>
-                                <span className={editingProduct.price > calculateDetailedHPP(editingProduct.id) ? 'text-green-600' : 'text-red-600'}>
+                                <span className={editingProduct.price > (productCosts[editingProduct.id] || 0) ? 'text-green-600' : 'text-red-600'}>
                                   {editingProduct.price > 0 
-                                    ? `${(((editingProduct.price - calculateDetailedHPP(editingProduct.id)) / editingProduct.price) * 100).toFixed(1)}%` 
+                                    ? `${(((editingProduct.price - (productCosts[editingProduct.id] || 0)) / editingProduct.price) * 100).toFixed(1)}%` 
                                     : '0%'}
                                 </span>
                               </div>
-                              {productDetails[editingProduct.id]?.weight && (
-                                <div className="flex justify-between text-xs text-gray-600 mt-2">
-                                  <span>Harga per {productDetails[editingProduct.id].weightUnit}:</span>
-                                  <span>
-                                    {productDetails[editingProduct.id].weight > 0 
-                                      ? formatCurrency(calculateDetailedHPP(editingProduct.id) / productDetails[editingProduct.id].weight) 
-                                      : formatCurrency(0)}
-                                  </span>
-                                </div>
-                              )}
                             </div>
                           </div>
                         </div>
@@ -4555,7 +4839,6 @@ export default function KasirApp() {
                           />
                         </div>
                       </div>
-                      
                       <button
                         className="mt-4 bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-md transition"
                         onClick={addSupplier}
@@ -4593,6 +4876,12 @@ export default function KasirApp() {
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                 <button
+                                  className="text-yellow-600 hover:text-yellow-900 mr-3"
+                                  onClick={() => startEditingSupplier(supplier)}
+                                >
+                                  Edit
+                                </button>
+                                <button
                                   className="text-red-600 hover:text-red-900"
                                   onClick={() => removeSupplier(supplier.id)}
                                 >
@@ -4606,6 +4895,92 @@ export default function KasirApp() {
                     </div>
                   </div>
                 </div>
+                
+                {/* Edit Supplier Modal */}
+                {editingSupplier && (
+                  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                    <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+                      <div className="p-6">
+                        <div className="flex justify-between items-center mb-4">
+                          <h3 className="text-lg font-medium">Edit Supplier</h3>
+                          <button
+                            className="text-gray-500 hover:text-gray-700"
+                            onClick={cancelEditingSupplier}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                        
+                        <div className="space-y-4">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Nama Supplier</label>
+                            <input
+                              type="text"
+                              className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              value={editingSupplier.name}
+                              onChange={(e) => setEditingSupplier({...editingSupplier, name: e.target.value})}
+                            />
+                          </div>
+                          
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Kontak</label>
+                            <input
+                              type="text"
+                              className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              value={editingSupplier.contact}
+                              onChange={(e) => setEditingSupplier({...editingSupplier, contact: e.target.value})}
+                            />
+                          </div>
+                          
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Telepon</label>
+                            <input
+                              type="text"
+                              className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              value={editingSupplier.phone}
+                              onChange={(e) => setEditingSupplier({...editingSupplier, phone: e.target.value})}
+                            />
+                          </div>
+                          
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                            <input
+                              type="email"
+                              className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              value={editingSupplier.email}
+                              onChange={(e) => setEditingSupplier({...editingSupplier, email: e.target.value})}
+                            />
+                          </div>
+                          
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Alamat</label>
+                            <textarea
+                              className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              value={editingSupplier.address}
+                              onChange={(e) => setEditingSupplier({...editingSupplier, address: e.target.value})}
+                              rows={3}
+                            />
+                          </div>
+                        </div>
+                        
+                        <div className="flex justify-end space-x-3 mt-6">
+                          <button
+                            className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                            onClick={cancelEditingSupplier}
+                          >
+                            Batal
+                          </button>
+                          <button
+                            className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
+                            onClick={saveEditedSupplier}
+                          >
+                            Simpan Perubahan
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
             
@@ -4664,13 +5039,57 @@ export default function KasirApp() {
                           />
                         </div>
                         <div>
-                          <label className="block text-sm text-gray-600 mb-1">Jumlah (Rp)</label>
+                          <label className="block text-sm text-gray-600 mb-1">Jumlah Satuan</label>
+                          <input
+                            type="text"
+                            placeholder="1"
+                            className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            value={newExpense.quantity}
+                            onChange={(e) => setNewExpense({...newExpense, quantity: Number(e.target.value)})}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm text-gray-600 mb-1">Satuan</label>
+                          <input
+                            type="text"
+                            placeholder="pcs, kg, liter, dll"
+                            className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            value={newExpense.unit}
+                            onChange={(e) => setNewExpense({...newExpense, unit: e.target.value})}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm text-gray-600 mb-1">Harga per Satuan (Rp)</label>
+                          <input
+                            type="text"
+                            placeholder="0"
+                            className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            value={formatCurrencyInput(newExpense.unitPrice)}
+                            onChange={(e) => {
+                              const unitPrice = parseCurrencyInput(e.target.value);
+                              setNewExpense({
+                                ...newExpense,
+                                unitPrice,
+                                amount: unitPrice * newExpense.quantity
+                              });
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm text-gray-600 mb-1">Total (Rp)</label>
                           <input
                             type="text"
                             placeholder="0"
                             className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                             value={formatCurrencyInput(newExpense.amount)}
-                            onChange={(e) => setNewExpense({...newExpense, amount: parseCurrencyInput(e.target.value)})}
+                            onChange={(e) => {
+                              const amount = parseCurrencyInput(e.target.value);
+                              setNewExpense({
+                                ...newExpense,
+                                amount,
+                                unitPrice: newExpense.quantity > 0 ? amount / newExpense.quantity : 0
+                              });
+                            }}
                           />
                         </div>
                       </div>
@@ -4690,6 +5109,9 @@ export default function KasirApp() {
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Kategori</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Deskripsi</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Jumlah</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Satuan</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Harga/Satuan</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Aksi</th>
                           </tr>
                         </thead>
@@ -4706,9 +5128,24 @@ export default function KasirApp() {
                                 <div className="text-sm text-gray-900">{expense.description}</div>
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm text-gray-900">{expense.quantity || 1}</div>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm text-gray-900">{expense.unit || '-'}</div>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm text-gray-900">{formatCurrency(expense.unitPrice || expense.amount)}</div>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
                                 <div className="text-sm text-gray-900">{formatCurrency(expense.amount)}</div>
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                <button
+                                  className="text-yellow-600 hover:text-yellow-900 mr-3"
+                                  onClick={() => startEditingExpense(expense)}
+                                >
+                                  Edit
+                                </button>
                                 <button
                                   className="text-red-600 hover:text-red-900"
                                   onClick={() => removeExpense(expense.id)}
@@ -4755,6 +5192,138 @@ export default function KasirApp() {
                           </div>
                         </div>
                       </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {/* Edit Expense Modal */}
+            {editingExpense && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+                  <div className="p-6">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-lg font-medium">Edit Pengeluaran</h3>
+                      <button
+                        className="text-gray-500 hover:text-gray-700"
+                        onClick={cancelEditingExpense}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Kategori</label>
+                        <select
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={editingExpense.category}
+                          onChange={(e) => setEditingExpense({...editingExpense, category: e.target.value})}
+                        >
+                          <option value="">Pilih Kategori</option>
+                          {expenseCategories.map((category, index) => (
+                            <option key={index} value={category}>{category}</option>
+                          ))}
+                        </select>
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Tanggal</label>
+                        <input
+                          type="date"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={editingExpense.date}
+                          onChange={(e) => setEditingExpense({...editingExpense, date: e.target.value})}
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Deskripsi</label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={editingExpense.description}
+                          onChange={(e) => setEditingExpense({...editingExpense, description: e.target.value})}
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Jumlah Satuan</label>
+                        <input
+                          type="number"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={editingExpense.quantity || 1}
+                          onChange={(e) => {
+                            const quantity = Number(e.target.value);
+                            const unitPrice = editingExpense.unitPrice || editingExpense.amount;
+                            setEditingExpense({
+                              ...editingExpense,
+                              quantity,
+                              amount: unitPrice * quantity
+                            });
+                          }}
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Satuan</label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={editingExpense.unit || ''}
+                          onChange={(e) => setEditingExpense({...editingExpense, unit: e.target.value})}
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Harga per Satuan (Rp)</label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={formatCurrencyInput(editingExpense.unitPrice || editingExpense.amount)}
+                          onChange={(e) => {
+                            const unitPrice = parseCurrencyInput(e.target.value);
+                            setEditingExpense({
+                              ...editingExpense,
+                              unitPrice,
+                              amount: unitPrice * (editingExpense.quantity || 1)
+                            });
+                          }}
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Total (Rp)</label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={formatCurrencyInput(editingExpense.amount)}
+                          onChange={(e) => {
+                            const amount = parseCurrencyInput(e.target.value);
+                            setEditingExpense({
+                              ...editingExpense,
+                              amount,
+                              unitPrice: (editingExpense.quantity || 1) > 0 ? amount / (editingExpense.quantity || 1) : 0
+                            });
+                          }}
+                        />
+                      </div>
+                    </div>
+                    
+                    <div className="flex justify-end space-x-3 mt-6">
+                      <button
+                        className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                        onClick={cancelEditingExpense}
+                      >
+                        Batal
+                      </button>
+                      <button
+                        className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
+                        onClick={saveEditedExpense}
+                      >
+                        Simpan Perubahan
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -4875,6 +5444,12 @@ export default function KasirApp() {
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                 <button
+                                  className="text-yellow-600 hover:text-yellow-900 mr-3"
+                                  onClick={() => startEditingAccommodation(cost)}
+                                >
+                                  Edit
+                                </button>
+                                <button
                                   className="text-red-600 hover:text-red-900"
                                   onClick={() => removeAccommodation(cost.id)}
                                 >
@@ -4945,6 +5520,104 @@ export default function KasirApp() {
                           </div>
                         </div>
                       </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {/* Edit Accommodation Modal */}
+            {editingAccommodation && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+                  <div className="p-6">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-lg font-medium">Edit Biaya Akomodasi</h3>
+                      <button
+                        className="text-gray-500 hover:text-gray-700"
+                        onClick={cancelEditingAccommodation}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Jenis</label>
+                        <select
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={editingAccommodation.type}
+                          onChange={(e) => setEditingAccommodation({...editingAccommodation, type: e.target.value})}
+                        >
+                          <option value="supplier_to_kitchen">Supplier ke Central Kitchen</option>
+                          <option value="kitchen_to_customer">Central Kitchen ke Customer</option>
+                        </select>
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Tanggal</label>
+                        <input
+                          type="date"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={editingAccommodation.date}
+                          onChange={(e) => setEditingAccommodation({...editingAccommodation, date: e.target.value})}
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Kendaraan</label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={editingAccommodation.vehicle}
+                          onChange={(e) => setEditingAccommodation({...editingAccommodation, vehicle: e.target.value})}
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Jarak (km)</label>
+                        <input
+                          type="number"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={editingAccommodation.distance}
+                          onChange={(e) => setEditingAccommodation({...editingAccommodation, distance: Number(e.target.value)})}
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Deskripsi</label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={editingAccommodation.description}
+                          onChange={(e) => setEditingAccommodation({...editingAccommodation, description: e.target.value})}
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Biaya (Rp)</label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={formatCurrencyInput(editingAccommodation.cost)}
+                          onChange={(e) => setEditingAccommodation({...editingAccommodation, cost: parseCurrencyInput(e.target.value)})}
+                        />
+                      </div>
+                    </div>
+                    
+                    <div className="flex justify-end space-x-3 mt-6">
+                      <button
+                        className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                        onClick={cancelEditingAccommodation}
+                      >
+                        Batal
+                      </button>
+                      <button
+                        className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
+                        onClick={saveEditedAccommodation}
+                      >
+                        Simpan Perubahan
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -5090,6 +5763,12 @@ export default function KasirApp() {
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                   <button
+                                    className="text-yellow-600 hover:text-yellow-900 mr-3"
+                                    onClick={() => startEditingAsset(asset)}
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
                                     className="text-red-600 hover:text-red-900"
                                     onClick={() => removeAsset(asset.id)}
                                   >
@@ -5158,101 +5837,16 @@ export default function KasirApp() {
               </div>
             )}
             
-            {/* Founder Share Calculator Tab */}
-            {activeTab === 'founder' && (
-              <div className="p-6">
-                <h2 className="text-2xl font-bold mb-6">Founder Share Calculator</h2>
-                
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  <div>
-                    <h3 className="font-medium mb-2">Input Data Founder</h3>
-                    
-                    <div className="space-y-4">
-                      {founderData.map((founder, index) => (
-                        <div key={founder.id} className="bg-gray-50 p-4 rounded-md">
-                          <div className="flex justify-between items-center mb-2">
-                            <h4 className="font-medium">{founder.name}</h4>
-                            <div className="flex space-x-2">
-                              <button
-                                className="text-yellow-600 hover:text-yellow-900"
-                                onClick={() => startEditingFounder(founder)}
-                              >
-                                Edit
-                              </button>
-                              <button
-                                className="text-red-600 hover:text-red-900"
-                                onClick={() => removeFounder(founder.id)}
-                              >
-                                Hapus
-                              </button>
-                            </div>
-                          </div>
-                          
-                          <div>
-                            <label className="block text-sm text-gray-600 mb-1">Persentase (%)</label>
-                            <input
-                              type="number"
-                              min="0"
-                              max="100"
-                              className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              value={founder.percentage}
-                              onChange={(e) => updateFounderData(index, 'percentage', Number(e.target.value))}
-                            />
-                          </div>
-                        </div>
-                      ))}
-                      
-                      <button
-                        className="bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-md transition"
-                        onClick={addFounder}
-                      >
-                        Tambah Founder
-                      </button>
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <h3 className="font-medium mb-2">Hasil Perhitungan</h3>
-                    
-                    <div className="bg-gray-50 p-4 rounded-md">
-                      <div className="space-y-4">
-                        {founderShares.map((share) => (
-                          <div key={share.id} className="flex justify-between items-center">
-                            <span className="font-medium">{share.name}</span>
-                            <span className="text-lg font-bold">{share.percentage.toFixed(2)}%</span>
-                          </div>
-                        ))}
-                        
-                        <div className="mt-6 pt-4 border-t border-gray-200">
-                          <h4 className="font-medium mb-2">Total Persentase</h4>
-                          <div className="text-lg font-bold">
-                            {founderShares.reduce((sum, share) => sum + share.percentage, 0).toFixed(2)}%
-                          </div>
-                          <div className="text-xs text-gray-500 mt-1">
-                            {founderShares.reduce((sum, share) => sum + share.percentage, 0) !== 100 && (
-                              <span className="text-red-500">
-                                Persentase tidak sama dengan 100%. Silakan sesuaikan.
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-            
-            {/* Edit Founder Modal */}
-            {editingFounder && (
+            {/* Edit Asset Modal */}
+            {editingAsset && (
               <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
                 <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
                   <div className="p-6">
                     <div className="flex justify-between items-center mb-4">
-                      <h3 className="text-lg font-medium">Edit Founder</h3>
+                      <h3 className="text-lg font-medium">Edit Aset</h3>
                       <button
                         className="text-gray-500 hover:text-gray-700"
-                        onClick={cancelEditingFounder}
+                        onClick={cancelEditingAsset}
                       >
                         ✕
                       </button>
@@ -5260,38 +5854,92 @@ export default function KasirApp() {
                     
                     <div className="space-y-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Nama Founder</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Nama Aset</label>
                         <input
                           type="text"
                           className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          value={editingFounder.name}
-                          onChange={(e) => setEditingFounder({...editingFounder, name: e.target.value})}
+                          value={editingAsset.name}
+                          onChange={(e) => setEditingAsset({...editingAsset, name: e.target.value})}
                         />
                       </div>
                       
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Persentase (%)</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Kategori</label>
+                        <select
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={editingAsset.category}
+                          onChange={(e) => setEditingAsset({...editingAsset, category: e.target.value})}
+                        >
+                          {assetCategories.map((category, index) => (
+                            <option key={index} value={category}>{category}</option>
+                          ))}
+                        </select>
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Tanggal Pembelian</label>
+                        <input
+                          type="date"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={editingAsset.purchaseDate}
+                          onChange={(e) => setEditingAsset({...editingAsset, purchaseDate: e.target.value})}
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Harga Pembelian (Rp)</label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={formatCurrencyInput(editingAsset.purchasePrice)}
+                          onChange={(e) => setEditingAsset({...editingAsset, purchasePrice: parseCurrencyInput(e.target.value)})}
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Umur Ekonomis (Tahun)</label>
                         <input
                           type="number"
-                          min="0"
-                          max="100"
+                          min="1"
                           className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          value={editingFounder.percentage}
-                          onChange={(e) => setEditingFounder({...editingFounder, percentage: Number(e.target.value)})}
+                          value={editingAsset.usefulLife}
+                          onChange={(e) => setEditingAsset({...editingAsset, usefulLife: Number(e.target.value)})}
                         />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Nilai Sisa (Rp)</label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={formatCurrencyInput(editingAsset.salvageValue)}
+                          onChange={(e) => setEditingAsset({...editingAsset, salvageValue: parseCurrencyInput(e.target.value)})}
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Metode Depresiasi</label>
+                        <select
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={editingAsset.depreciationMethod}
+                          onChange={(e) => setEditingAsset({...editingAsset, depreciationMethod: e.target.value})}
+                        >
+                          <option value="straight_line">Garis Lurus</option>
+                          <option value="reducing_balance">Saldo Menurun</option>
+                        </select>
                       </div>
                     </div>
                     
                     <div className="flex justify-end space-x-3 mt-6">
                       <button
                         className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-                        onClick={cancelEditingFounder}
+                        onClick={cancelEditingAsset}
                       >
                         Batal
                       </button>
                       <button
                         className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
-                        onClick={saveEditedFounder}
+                        onClick={saveEditedAsset}
                       >
                         Simpan Perubahan
                       </button>
@@ -5364,6 +6012,12 @@ export default function KasirApp() {
                                 <div className="text-sm text-gray-900">{formatCurrency(voucher.amount)}</div>
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                <button
+                                  className="text-yellow-600 hover:text-yellow-900 mr-3"
+                                  onClick={() => startEditingVoucher(voucher)}
+                                >
+                                  Edit
+                                </button>
                                 <button
                                   className="text-red-600 hover:text-red-900"
                                   onClick={() => removeElectricityVoucher(voucher.id)}
@@ -5450,6 +6104,12 @@ export default function KasirApp() {
                                 <div className="text-sm text-gray-900">{device.hours} jam</div>
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                <button
+                                  className="text-yellow-600 hover:text-yellow-900 mr-3"
+                                  onClick={() => startEditingDevice(device)}
+                                >
+                                  Edit
+                                </button>
                                 <button
                                   className="text-red-600 hover:text-red-900"
                                   onClick={() => removeElectricityDevice(device.id)}
@@ -5562,6 +6222,131 @@ export default function KasirApp() {
                           Tarif listrik standar PLN (Rp 1,444.70/kWh)
                         </div>
                       </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {/* Edit Voucher Modal */}
+            {editingVoucher && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+                  <div className="p-6">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-lg font-medium">Edit Voucher Listrik</h3>
+                      <button
+                        className="text-gray-500 hover:text-gray-700"
+                        onClick={cancelEditingVoucher}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Tanggal</label>
+                        <input
+                          type="date"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={editingVoucher.date}
+                          onChange={(e) => setEditingVoucher({...editingVoucher, date: e.target.value})}
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Jumlah (Rp)</label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={formatCurrencyInput(editingVoucher.amount)}
+                          onChange={(e) => setEditingVoucher({...editingVoucher, amount: parseCurrencyInput(e.target.value)})}
+                        />
+                      </div>
+                    </div>
+                    
+                    <div className="flex justify-end space-x-3 mt-6">
+                      <button
+                        className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                        onClick={cancelEditingVoucher}
+                      >
+                        Batal
+                      </button>
+                      <button
+                        className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
+                        onClick={saveEditedVoucher}
+                      >
+                        Simpan Perubahan
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {/* Edit Device Modal */}
+            {editingDevice && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+                  <div className="p-6">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-lg font-medium">Edit Perangkat Listrik</h3>
+                      <button
+                        className="text-gray-500 hover:text-gray-700"
+                        onClick={cancelEditingDevice}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Nama Perangkat</label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={editingDevice.name}
+                          onChange={(e) => setEditingDevice({...editingDevice, name: e.target.value})}
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Daya (Watt)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={editingDevice.watt}
+                          onChange={(e) => setEditingDevice({...editingDevice, watt: Number(e.target.value)})}
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Pemakaian per Hari (Jam)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          max="24"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={editingDevice.hours}
+                          onChange={(e) => setEditingDevice({...editingDevice, hours: Number(e.target.value)})}
+                        />
+                      </div>
+                    </div>
+                    
+                    <div className="flex justify-end space-x-3 mt-6">
+                      <button
+                        className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                        onClick={cancelEditingDevice}
+                      >
+                        Batal
+                      </button>
+                      <button
+                        className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
+                        onClick={saveEditedDevice}
+                      >
+                        Simpan Perubahan
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -5982,6 +6767,149 @@ export default function KasirApp() {
               </div>
             )}
             
+            {/* Founder Share Calculator Tab */}
+            {activeTab === 'founder' && (
+              <div className="p-6">
+                <h2 className="text-2xl font-bold mb-6">Founder Share Calculator</h2>
+                
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <div>
+                    <h3 className="font-medium mb-2">Input Data Founder</h3>
+                    
+                    <div className="space-y-4">
+                      {founderData.map((founder, index) => (
+                        <div key={founder.id} className="bg-gray-50 p-4 rounded-md">
+                          <div className="flex justify-between items-center mb-2">
+                            <h4 className="font-medium">{founder.name}</h4>
+                            <div className="flex space-x-2">
+                              <button
+                                className="text-yellow-600 hover:text-yellow-900"
+                                onClick={() => startEditingFounder(founder)}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                className="text-red-600 hover:text-red-900"
+                                onClick={() => removeFounder(founder.id)}
+                              >
+                                Hapus
+                              </button>
+                            </div>
+                          </div>
+                          
+                          <div>
+                            <label className="block text-sm text-gray-600 mb-1">Persentase (%)</label>
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              value={founder.percentage}
+                              onChange={(e) => updateFounderData(index, 'percentage', Number(e.target.value))}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                      
+                      <button
+                        className="bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-md transition"
+                        onClick={addFounder}
+                      >
+                        Tambah Founder
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <h3 className="font-medium mb-2">Hasil Perhitungan</h3>
+                    
+                    <div className="bg-gray-50 p-4 rounded-md">
+                      <div className="space-y-4">
+                        {founderShares.map((share) => (
+                          <div key={share.id} className="flex justify-between items-center">
+                            <span className="font-medium">{share.name}</span>
+                            <span className="text-lg font-bold">{share.percentage.toFixed(2)}%</span>
+                          </div>
+                        ))}
+                        
+                        <div className="mt-6 pt-4 border-t border-gray-200">
+                          <h4 className="font-medium mb-2">Total Persentase</h4>
+                          <div className="text-lg font-bold">
+                            {founderShares.reduce((sum, share) => sum + share.percentage, 0).toFixed(2)}%
+                          </div>
+                          <div className="text-xs text-gray-500 mt-1">
+                            {founderShares.reduce((sum, share) => sum + share.percentage, 0) !== 100 && (
+                              <span className="text-red-500">
+                                Persentase tidak sama dengan 100%. Silakan sesuaikan.
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {/* Edit Founder Modal */}
+            {editingFounder && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+                  <div className="p-6">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-lg font-medium">Edit Founder</h3>
+                      <button
+                        className="text-gray-500 hover:text-gray-700"
+                        onClick={cancelEditingFounder}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Nama Founder</label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={editingFounder.name}
+                          onChange={(e) => setEditingFounder({...editingFounder, name: e.target.value})}
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Persentase (%)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={editingFounder.percentage}
+                          onChange={(e) => setEditingFounder({...editingFounder, percentage: Number(e.target.value)})}
+                        />
+                      </div>
+                    </div>
+                    
+                    <div className="flex justify-end space-x-3 mt-6">
+                      <button
+                        className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                        onClick={cancelEditingFounder}
+                      >
+                        Batal
+                      </button>
+                      <button
+                        className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
+                        onClick={saveEditedFounder}
+                      >
+                        Simpan Perubahan
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            
             {/* Debts & Receivables Tab */}
             {activeTab === 'hutangpiutang' && (
               <div className="p-6">
@@ -6087,6 +7015,12 @@ export default function KasirApp() {
                                 </span>
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                <button
+                                  className="text-yellow-600 hover:text-yellow-900 mr-3"
+                                  onClick={() => startEditingDebt(debt)}
+                                >
+                                  Edit
+                                </button>
                                 {debt.status === 'unpaid' ? (
                                   <button
                                     className="text-green-600 hover:text-green-900 mr-3"
@@ -6215,6 +7149,12 @@ export default function KasirApp() {
                                 </span>
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                <button
+                                  className="text-yellow-600 hover:text-yellow-900 mr-3"
+                                  onClick={() => startEditingReceivable(receivable)}
+                                >
+                                  Edit
+                                </button>
                                 {receivable.status === 'unpaid' ? (
                                   <button
                                     className="text-green-600 hover:text-green-900 mr-3"
@@ -6279,6 +7219,202 @@ export default function KasirApp() {
                         <span className="text-sm text-gray-500">Belum Diterima</span>
                         <span className="text-sm font-medium text-red-600">{formatCurrency(calculateUnpaidReceivables())}</span>
                       </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {/* Edit Debt Modal */}
+            {editingDebt && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+                  <div className="p-6">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-lg font-medium">Edit Hutang</h3>
+                      <button
+                        className="text-gray-500 hover:text-gray-700"
+                        onClick={cancelEditingDebt}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Nama</label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={editingDebt.name}
+                          onChange={(e) => setEditingDebt({...editingDebt, name: e.target.value})}
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Jumlah (Rp)</label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={formatCurrencyInput(editingDebt.amount)}
+                          onChange={(e) => setEditingDebt({...editingDebt, amount: parseCurrencyInput(e.target.value)})}
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Tanggal</label>
+                        <input
+                          type="date"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={editingDebt.date}
+                          onChange={(e) => setEditingDebt({...editingDebt, date: e.target.value})}
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Jatuh Tempo</label>
+                        <input
+                          type="date"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={editingDebt.dueDate}
+                          onChange={(e) => setEditingDebt({...editingDebt, dueDate: e.target.value})}
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Deskripsi</label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={editingDebt.description}
+                          onChange={(e) => setEditingDebt({...editingDebt, description: e.target.value})}
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                        <select
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={editingDebt.status}
+                          onChange={(e) => setEditingDebt({...editingDebt, status: e.target.value})}
+                        >
+                          <option value="unpaid">Belum Dibayar</option>
+                          <option value="paid">Sudah Dibayar</option>
+                        </select>
+                      </div>
+                    </div>
+                    
+                    <div className="flex justify-end space-x-3 mt-6">
+                      <button
+                        className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                        onClick={cancelEditingDebt}
+                      >
+                        Batal
+                      </button>
+                      <button
+                        className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
+                        onClick={saveEditedDebt}
+                      >
+                        Simpan Perubahan
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {/* Edit Receivable Modal */}
+            {editingReceivable && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+                  <div className="p-6">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-lg font-medium">Edit Piutang</h3>
+                      <button
+                        className="text-gray-500 hover:text-gray-700"
+                        onClick={cancelEditingReceivable}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Nama</label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={editingReceivable.name}
+                          onChange={(e) => setEditingReceivable({...editingReceivable, name: e.target.value})}
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Jumlah (Rp)</label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={formatCurrencyInput(editingReceivable.amount)}
+                          onChange={(e) => setEditingReceivable({...editingReceivable, amount: parseCurrencyInput(e.target.value)})}
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Tanggal</label>
+                        <input
+                          type="date"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={editingReceivable.date}
+                          onChange={(e) => setEditingReceivable({...editingReceivable, date: e.target.value})}
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Jatuh Tempo</label>
+                        <input
+                          type="date"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={editingReceivable.dueDate}
+                          onChange={(e) => setEditingReceivable({...editingReceivable, dueDate: e.target.value})}
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Deskripsi</label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={editingReceivable.description}
+                          onChange={(e) => setEditingReceivable({...editingReceivable, description: e.target.value})}
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                        <select
+                          className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={editingReceivable.status}
+                          onChange={(e) => setEditingReceivable({...editingReceivable, status: e.target.value})}
+                        >
+                          <option value="unpaid">Belum Diterima</option>
+                          <option value="paid">Sudah Diterima</option>
+                        </select>
+                      </div>
+                    </div>
+                    
+                    <div className="flex justify-end space-x-3 mt-6">
+                      <button
+                        className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                        onClick={cancelEditingReceivable}
+                      >
+                        Batal
+                      </button>
+                      <button
+                        className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
+                        onClick={saveEditedReceivable}
+                      >
+                        Simpan Perubahan
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -6356,6 +7492,10 @@ export default function KasirApp() {
                         <span className="text-sm font-medium">{formatCurrency(dailyReport.todayReceivableCollections)}</span>
                       </div>
                       <div className="flex justify-between">
+                        <span className="text-sm text-gray-500">Biaya Listrik</span>
+                        <span className="text-sm font-medium">{formatCurrency(dailyReport.todayElectricityCost)}</span>
+                      </div>
+                      <div className="flex justify-between">
                         <span className="text-sm text-gray-500">Laba Bersih</span>
                         <span className={`text-sm font-bold ${dailyReport.netProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                           {formatCurrency(dailyReport.netProfit)}
@@ -6418,6 +7558,10 @@ export default function KasirApp() {
                         <span className="text-sm font-medium">{formatCurrency(monthlyReport.monthlyReceivableCollections)}</span>
                       </div>
                       <div className="flex justify-between">
+                        <span className="text-sm text-gray-500">Biaya Listrik</span>
+                        <span className="text-sm font-medium">{formatCurrency(monthlyReport.monthlyElectricityCost)}</span>
+                      </div>
+                      <div className="flex justify-between">
                         <span className="text-sm text-gray-500">Laba Bersih</span>
                         <span className={`text-sm font-bold ${monthlyReport.netProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                           {formatCurrency(monthlyReport.netProfit)}
@@ -6478,6 +7622,10 @@ export default function KasirApp() {
                       <div className="flex justify-between">
                         <span className="text-sm text-gray-500">Penerimaan Piutang</span>
                         <span className="text-sm font-medium">{formatCurrency(yearlyReport.yearlyReceivableCollections)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-gray-500">Biaya Listrik</span>
+                        <span className="text-sm font-medium">{formatCurrency(yearlyReport.yearlyElectricityCost)}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-sm text-gray-500">Laba Bersih</span>
@@ -6825,78 +7973,84 @@ export default function KasirApp() {
                       </button>
                     </div>
                   </div>
-                </div>
-                
-                <div>
-                  <h4 className="font-medium mb-3">Riwayat Kerja</h4>
-                  <div className="bg-gray-50 p-4 rounded-md max-h-96 overflow-y-auto">
-                    {selectedEmployeeHistory.length > 0 ? (
-                      <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-100">
-                          <tr>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tanggal</th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Jam</th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Bayaran</th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Aksi</th>
-                          </tr>
-                        </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                          {selectedEmployeeHistory.map((record) => (
-                            <tr key={record.id}>
-                              <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900">
-                                {formatDate(record.date)}
-                              </td>
-                              <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900">
-                                {record.hours} jam
-                              </td>
-                              <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900">
-                                {formatCurrency(record.hourlyRate)}
-                              </td>
-                              <td className="px-3 py-2 whitespace-nowrap text-sm font-medium text-gray-900">
-                                {formatCurrency(record.hours * record.hourlyRate)}
-                              </td>
-                              <td className="px-3 py-2 whitespace-nowrap text-sm font-medium">
-                                <button
-                                  className="text-red-600 hover:text-red-900"
-                                  onClick={() => removeWorkRecord(record.id)}
-                                >
-                                  Hapus
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    ) : (
-                      <p className="text-gray-500 text-center py-4">Belum ada riwayat kerja</p>
-                    )}
-                  </div>
                   
-                  <div className="mt-4 bg-blue-50 p-3 rounded-md">
-                    <h4 className="font-medium text-blue-800 mb-2">Total Pendapatan</h4>
-                    <div className="grid grid-cols-2 gap-2 text-sm">
-                      <div>
-                        <span className="text-gray-600">Bulan Ini:</span>
-                        <div className="font-medium">
-                          {formatCurrency(
-                            calculateEmployeeMonthlyEarnings(
-                              selectedEmployee.id, 
-                              new Date().getFullYear(), 
-                              new Date().getMonth()
-                            )
-                          )}
+                  <div>
+                    <h4 className="font-medium mb-3">Riwayat Kerja</h4>
+                    <div className="bg-gray-50 p-4 rounded-md max-h-96 overflow-y-auto">
+                      {selectedEmployeeHistory.length > 0 ? (
+                        <table className="min-w-full divide-y divide-gray-200">
+                          <thead className="bg-gray-100">
+                            <tr>
+                              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tanggal</th>
+                              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Jam</th>
+                              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Bayaran</th>
+                              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Aksi</th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white divide-y divide-gray-200">
+                            {selectedEmployeeHistory.map((record) => (
+                              <tr key={record.id}>
+                                <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900">
+                                  {formatDate(record.date)}
+                                </td>
+                                <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900">
+                                  {record.hours} jam
+                                </td>
+                                <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900">
+                                  {formatCurrency(record.hourlyRate)}
+                                </td>
+                                <td className="px-3 py-2 whitespace-nowrap text-sm font-medium text-gray-900">
+                                  {formatCurrency(record.hours * record.hourlyRate)}
+                                </td>
+                                <td className="px-3 py-2 whitespace-nowrap text-sm font-medium">
+                                  <button
+                                    className="text-yellow-600 hover:text-yellow-900 mr-3"
+                                    onClick={() => startEditingWorkRecord(record)}
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    className="text-red-600 hover:text-red-900"
+                                    onClick={() => removeWorkRecord(record.id)}
+                                  >
+                                    Hapus
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      ) : (
+                        <p className="text-gray-500 text-center py-4">Belum ada riwayat kerja</p>
+                      )}
+                    </div>
+                    
+                    <div className="mt-4 bg-blue-50 p-3 rounded-md">
+                      <h4 className="font-medium text-blue-800 mb-2">Total Pendapatan</h4>
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <div>
+                          <span className="text-gray-600">Bulan Ini:</span>
+                          <div className="font-medium">
+                            {formatCurrency(
+                              calculateEmployeeMonthlyEarnings(
+                                selectedEmployee.id, 
+                                new Date().getFullYear(), 
+                                new Date().getMonth()
+                              )
+                            )}
+                          </div>
                         </div>
-                      </div>
-                      <div>
-                        <span className="text-gray-600">Total Semua:</span>
-                        <div className="font-medium">
-                          {formatCurrency(
-                            selectedEmployeeHistory.reduce(
-                              (sum, record) => sum + (record.hours * record.hourlyRate), 
-                              0
-                            )
-                          )}
+                        <div>
+                          <span className="text-gray-600">Total Semua:</span>
+                          <div className="font-medium">
+                            {formatCurrency(
+                              selectedEmployeeHistory.reduce(
+                                (sum, record) => sum + (record.hours * record.hourlyRate), 
+                                0
+                              )
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -6910,6 +8064,205 @@ export default function KasirApp() {
                   onClick={() => setShowWorkHistoryModal(false)}
                 >
                   Tutup
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Edit Stock Opname Modal */}
+      {editingStockOpname && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-medium">Edit Stock Opname</h3>
+                <button
+                  className="text-gray-500 hover:text-gray-700"
+                  onClick={cancelEditingStockOpname}
+                >
+                  ✕
+                </button>
+              </div>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Tanggal</label>
+                  <input
+                    type="date"
+                    className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={editingStockOpname.date}
+                    onChange={(e) => setEditingStockOpname({...editingStockOpname, date: e.target.value})}
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Catatan</label>
+                  <textarea
+                    className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={editingStockOpname.notes}
+                    onChange={(e) => setEditingStockOpname({...editingStockOpname, notes: e.target.value})}
+                    rows={2}
+                  />
+                </div>
+                
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Produk</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stok Sistem</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stok Aktual</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Selisih</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Catatan</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {editingStockOpname.items.map((item, index) => (
+                        <tr key={index}>
+                          <td className="px-4 py-2 whitespace-nowrap text-sm font-medium text-gray-900">
+                            {item.productName}
+                          </td>
+                          <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">
+                            {item.systemStock || 0}
+                          </td>
+                          <td className="px-4 py-2 whitespace-nowrap">
+                            <input
+                              type="number"
+                              min="0"
+                              className="w-20 rounded-md border border-gray-300 py-1 px-2 text-sm"
+                              value={item.actualStock || 0}
+                              onChange={(e) => {
+                                const updatedItems = [...editingStockOpname.items];
+                                updatedItems[index] = { ...updatedItems[index], actualStock: Number(e.target.value) };
+                                updatedItems[index].difference = Number(e.target.value) - (updatedItems[index].systemStock || 0);
+                                setEditingStockOpname({
+                                  ...editingStockOpname,
+                                  items: updatedItems
+                                });
+                              }}
+                            />
+                          </td>
+                          <td className="px-4 py-2 whitespace-nowrap text-sm">
+                            <span className={item.difference !== 0 ? 'font-medium text-red-600' : ''}>
+                              {item.difference !== 0 ? (item.difference > 0 ? '+' : '') : ''}
+                              {item.difference || 0}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2 whitespace-nowrap">
+                            <input
+                              type="text"
+                              className="w-full rounded-md border border-gray-300 py-1 px-2 text-sm"
+                              value={item.notes || ''}
+                              onChange={(e) => {
+                                const updatedItems = [...editingStockOpname.items];
+                                updatedItems[index] = { ...updatedItems[index], notes: e.target.value };
+                                setEditingStockOpname({
+                                  ...editingStockOpname,
+                                  items: updatedItems
+                                });
+                              }}
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              
+              <div className="flex justify-end space-x-3 mt-6">
+                <button
+                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                  onClick={cancelEditingStockOpname}
+                >
+                  Batal
+                </button>
+                <button
+                  className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
+                  onClick={saveEditedStockOpname}
+                >
+                  Simpan Perubahan
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Edit Work Record Modal */}
+      {editingWorkRecord && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-medium">Edit Catatan Kerja</h3>
+                <button
+                  className="text-gray-500 hover:text-gray-700"
+                  onClick={cancelEditingWorkRecord}
+                >
+                  ✕
+                </button>
+              </div>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Tanggal</label>
+                  <input
+                    type="date"
+                    className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={editingWorkRecord.date}
+                    onChange={(e) => setEditingWorkRecord({...editingWorkRecord, date: e.target.value})}
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Jam Kerja</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={editingWorkRecord.hours}
+                    onChange={(e) => setEditingWorkRecord({...editingWorkRecord, hours: Number(e.target.value)})}
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Bayaran per Jam</label>
+                  <input
+                    type="text"
+                    min="0"
+                    className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={formatCurrencyInput(editingWorkRecord.hourlyRate)}
+                    onChange={(e) => setEditingWorkRecord({...editingWorkRecord, hourlyRate: parseCurrencyInput(e.target.value)})}
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Deskripsi</label>
+                  <textarea
+                    className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={editingWorkRecord.description}
+                    onChange={(e) => setEditingWorkRecord({...editingWorkRecord, description: e.target.value})}
+                    rows={2}
+                  />
+                </div>
+              </div>
+              
+              <div className="flex justify-end space-x-3 mt-6">
+                <button
+                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                  onClick={cancelEditingWorkRecord}
+                >
+                  Batal
+                </button>
+                <button
+                  className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
+                  onClick={saveEditedWorkRecord}
+                >
+                  Simpan Perubahan
                 </button>
               </div>
             </div>
